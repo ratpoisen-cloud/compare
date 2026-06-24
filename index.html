@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CAD Laptop Selection Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6.16"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #000000; color: #e5e7eb; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+        input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; height: 24px; }
+        input[type=range]:focus { outline: none; }
+        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: linear-gradient(to right, #ffffff var(--value, 50%), #333333 var(--value, 50%)); border-radius: 2px; }
+        input[type=range]::-webkit-slider-thumb { height: 24px; width: 10px; border-radius: 6px; border: 2px solid #ffffff; background: #000000; cursor: pointer; -webkit-appearance: none; margin-top: -10px; transition: transform 0.1s; }
+        input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.1); }
+        .laptop-row { transition: all 0.2s ease; }
+        .laptop-row:hover { background-color: #111111; }
+        .laptop-row.selected { background-color: #1a1a1a; box-shadow: inset 3px 0 0 #ffffff; }
+    </style>
+</head>
+<body class="p-4 md:p-8 min-h-screen">
+
+    <div class="max-w-6xl mx-auto space-y-10">
+        <div class="pb-6 border-b border-[#222]">
+            <h1 class="text-3xl font-bold text-white tracking-tight">CAD Laptop Matrix</h1>
+            <p class="text-gray-400 mt-2 text-sm">Интерактивный подбор конфигурации (Бюджет до 200 000 ₽+)</p>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-12">
+            <div class="lg:col-span-7 flex flex-col">
+                <div id="plot-container" class="w-full overflow-x-auto min-h-[300px] mb-8"></div>
+                <div class="py-8 border-y border-[#222] flex flex-col items-center justify-center text-center my-auto">
+                    <p class="text-gray-400 text-sm mb-3">Top Pick</p>
+                    <h2 id="winner-name" class="text-2xl text-white font-mono tracking-widest uppercase">Вычисляем...</h2>
+                </div>
+            </div>
+
+            <div class="lg:col-span-5 flex flex-col justify-center">
+                <div class="space-y-8">
+                    <!-- Sliders -->
+                    <div class="flex items-center gap-4"><label class="w-1/3 text-sm font-medium text-gray-300">Производительность</label><input type="range" id="w-power" min="1" max="10" value="10" class="w-full"><div class="w-14 h-14 bg-[#111] border border-[#222] rounded-2xl flex items-center justify-center text-white font-mono shadow-inner"><span id="val-power">10</span></div></div>
+                    <div class="flex items-center gap-4"><label class="w-1/3 text-sm font-medium text-gray-300">Автономность</label><input type="range" id="w-battery" min="1" max="10" value="7" class="w-full"><div class="w-14 h-14 bg-[#111] border border-[#222] rounded-2xl flex items-center justify-center text-white font-mono shadow-inner"><span id="val-battery">7</span></div></div>
+                    <div class="flex items-center gap-4"><label class="w-1/3 text-sm font-medium text-gray-300">Экран</label><input type="range" id="w-screen" min="1" max="10" value="5" class="w-full"><div class="w-14 h-14 bg-[#111] border border-[#222] rounded-2xl flex items-center justify-center text-white font-mono shadow-inner"><span id="val-screen">5</span></div></div>
+                    <div class="flex items-center gap-4"><label class="w-1/3 text-sm font-medium text-gray-300">Вес</label><input type="range" id="w-mobility" min="1" max="10" value="3" class="w-full"><div class="w-14 h-14 bg-[#111] border border-[#222] rounded-2xl flex items-center justify-center text-white font-mono shadow-inner"><span id="val-mobility">3</span></div></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-16 border border-[#222] bg-[#050505] rounded-3xl overflow-hidden">
+            <h2 class="text-sm uppercase tracking-widest font-semibold p-6 pb-4 text-gray-400 border-b border-[#222]">Детальная матрица (Кликни на строку)</h2>
+            <table class="w-full text-left text-sm text-gray-300" id="laptop-table">
+                <thead class="text-xs text-gray-500 uppercase bg-[#0a0a0a]">
+                    <tr>
+                        <th class="px-6 py-4 font-medium">Модель</th>
+                        <th class="px-6 py-4 font-medium">CPU</th>
+                        <th class="px-6 py-4 font-medium">ОЗУ</th>
+                        <th class="px-6 py-4 font-medium">GPU (VRAM)</th>
+                        <th class="px-6 py-4 font-medium">Цена (~₽)</th>
+                    </tr>
+                </thead>
+                <tbody id="table-body" class="divide-y divide-[#1a1a1a]"></tbody>
+            </table>
+            <div id="details-view" class="hidden border-t border-[#222] bg-[#0a0a0a] p-8">
+                <div class="flex justify-between items-start mb-6">
+                    <h3 id="detail-title" class="text-xl font-bold text-white font-mono">Model</h3>
+                    <div class="flex items-center gap-3">
+                        <span id="detail-tag" class="px-3 py-1 bg-[#1a1a1a] border border-[#333] rounded-md text-xs font-mono text-gray-300"></span>
+                        <button onclick="document.getElementById('details-view').classList.add('hidden'); document.querySelectorAll('.laptop-row').forEach(r=>r.classList.remove('selected'))" class="text-gray-500 hover:text-white text-sm px-2 py-1 rounded-lg hover:bg-[#1a1a1a] transition">&times;</button>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div><h4 class="text-sm font-semibold text-white mb-4">Плюсы</h4><ul id="detail-pros" class="space-y-2 text-sm text-gray-400"></ul></div>
+                    <div><h4 class="text-sm font-semibold text-white mb-4">Минусы</h4><ul id="detail-cons" class="space-y-2 text-sm text-gray-400"></ul></div>
+                </div>
+                <div class="mt-8 pt-6 border-t border-[#222] flex flex-col md:flex-row justify-between items-center gap-4">
+                    <p class="text-sm text-gray-400"><span class="font-semibold text-white">Вердикт: </span><span id="detail-verdict"></span></p>
+                    <div id="links-container" class="flex flex-wrap gap-3"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const laptops = [
+            { id: "proart", name: "ASUS ProArt P16", cpu: "Ryzen AI 9 HX 370", ram: "32GB LPDDR5X", gpu: "RTX 5060 (8GB)", price: "212 500", links: [{name:"Яндекс", url:"https://market.yandex.ru/product--noutbuk-asus-proart-p16-h7606wm-rj103x/4753523830", style:"bg-yellow-500 text-black"}], attrs: { power: 9.0, battery: 8.5, screen: 10.0, stability: 8.5, mobility: 9.5, price: 7.0, reviews: 9.0 }, color: "#f87171", pros: ["Топовый Ryzen AI 9 HX 370 — лучший CPU в подборке", "OLED 100% DCI-P3 — идеален для Photoshop", "Премиальная сборка, положительные отзывы"], cons: ["Цена 212 500₽ — выше бюджета", "Глянцевый экран — блики"], verdict: "Лучший по экрану и сборке, но перерасход бюджета. Оправдан, если экран — приоритет.", tag: "ПРЕМИУМ ЛИДЕР" },
+            { id: "gigabyte", name: "Gigabyte Aero X16", cpu: "Ryzen AI 7 350", ram: "32GB DDR5", gpu: "RTX 5070 (8GB)", price: "197 156", links: [{name:"Яндекс", url:"https://market.yandex.ru/search?text=Gigabyte+Aero+X16+350+RTX+5070", style:"bg-yellow-500 text-black"}, {name:"Ozon", url:"https://www.ozon.ru/category/noutbuki-15692/?text=Gigabyte+Aero+X16+350+RTX+5070", style:"bg-blue-600 text-white"}], attrs: { power: 8.5, battery: 7.0, screen: 9.0, stability: 7.5, mobility: 9.0, price: 8.5, reviews: 7.5 }, color: "#c8a57e", pros: ["RTX 5070 — лучшая GPU в подборке для Revit", "Pantone 100% sRGB — точная цветопередача", "197 156₽ — в рамках бюджета"], cons: ["Видеокарта ограничена 85 Вт", "Нестабильные отзывы о термике"], verdict: "Самый сбалансированный для архитектора. Лучшая GPU + экран в бюджете.", tag: "ТОП КОМПРОМИСС" },
+            { id: "msi-vector", name: "MSI Vector 16 HX", cpu: "Core i7-14700HX", ram: "32GB DDR5", gpu: "RTX 4070 (8GB)", price: "185 000", links: [{name:"DNS", url:"https://www.dns-shop.ru/search/?q=MSI+Vector+16+HX", style:"bg-orange-500 text-white"}, {name:"Ситилинк", url:"https://www.citilink.ru/search/?text=MSI+Vector+16+HX", style:"bg-orange-600 text-white"}], attrs: { power: 10.0, battery: 3.5, screen: 7.0, stability: 7.0, mobility: 4.0, price: 9.0, reviews: 7.0 }, color: "#93c5fd", pros: ["i7-14700HX + RTX 4070 140Вт — максимальная мощность", "185 000₽ — лучшая цена за такую производительность", "Идеальное охлаждение"], cons: ["1–1.5 часа под нагрузкой — критично мало", "Тяжёлая, громкая"], verdict: "Только если нет задачи работать от батареи. Танк для дома.", tag: "СТАЦИОНАРНЫЙ ТАНК" },
+            { id: "lenovo-slim", name: "Lenovo Legion Slim 5", cpu: "Ryzen 7 8845HS", ram: "32GB DDR5", gpu: "RTX 4070 (8GB)", price: "168 900", links: [{name:"Яндекс", url:"https://market.yandex.ru/search?text=Lenovo+Legion+Slim+5+Ryzen+RTX+4070", style:"bg-yellow-500 text-black"}], attrs: { power: 8.5, battery: 6.5, screen: 7.0, stability: 8.5, mobility: 6.0, price: 10.0, reviews: 8.5 }, color: "#a7f3d0", pros: ["168 900₽ — самая низкая цена", "Холодный чип AMD, стабильная сборка", "Отличные отзывы покупателей"], cons: ["Пластиковый поддон", "Экран средний"], verdict: "Лучшая цена за свои деньги. Рабочая лошадка для тех, кому важно соотношение цена/мощность.", tag: "РАБОЧАЯ ЛОШАДКА" },
+            { id: "asus-tuf", name: "ASUS TUF Gaming A16", cpu: "Ryzen 9 7940HS", ram: "32GB DDR5", gpu: "RTX 4070 (8GB)", price: "155 000", links: [{name:"Ozon", url:"https://www.ozon.ru/search/?text=ASUS+TUF+Gaming+A16+32gb", style:"bg-blue-600 text-white"}], attrs: { power: 8.5, battery: 9.0, screen: 6.0, stability: 9.0, mobility: 7.0, price: 9.5, reviews: 8.5 }, color: "#fca5a5", pros: ["Рекордная батарея — 3–4ч под нагрузкой", "Армейская надёжность, стабильные отзывы", "155 000₽ — самая дешёвая в подборке"], cons: ["Блеклый экран — слабая цветопередача"], verdict: "Лучший по батарее и надёжности за минимум денег. Экран — единственный минус.", tag: "ЧЕМПИОН БАТАРЕИ" },
+            { id: "thinkpad", name: "ThinkPad P16v Gen 2", cpu: "Core Ultra 7", ram: "32GB DDR5", gpu: "RTX 4060 (8GB)", price: "190 000", links: [{name:"Яндекс", url:"https://market.yandex.ru/search?text=ThinkPad+P16v+Gen+2", style:"bg-yellow-500 text-black"}], attrs: { power: 7.0, battery: 7.0, screen: 7.0, stability: 9.5, mobility: 7.0, price: 7.5, reviews: 9.0 }, color: "#e5e7eb", pros: ["ISV сертификация — сертифицирован для Revit/AutoCAD", "ThinkPad клавиатура и сборка", "Стабильность и надёжность бизнес-класса"], cons: ["RTX 4060 — слабее конкурентов", "190 000₽ за RTX 4060 — дорого"], verdict: "Для тех, кому нужна сертификация ISV и бизнес-надёжность. Переплата за бренд.", tag: "ИНЖЕНЕРНЫЙ КЛАСС" },
+            { id: "bad-choice", name: "ASUS ROG Zephyrus G16", cpu: "Core Ultra 7", ram: "16GB LPDDR5X", gpu: "RTX 4050 (6GB)", price: "181 917", links: [{name:"Ozon", url:"https://www.ozon.ru/search/?text=ASUS+ROG+Zephyrus+G16+16GB", style:"bg-blue-600 text-white"}], attrs: { power: 4.0, battery: 7.0, screen: 9.0, stability: 4.0, mobility: 9.5, price: 3.0, reviews: 5.0 }, color: "#ef4444", pros: ["OLED экран", "Лёгкая и компактная"], cons: ["16GB RAM распаяно — невозможно расширить", "RTX 4050 6GB — слаба для Revit/CAD", "181 917₽ — завышена за такую конфигурацию"], verdict: "Не подходит для Revit/CAD. 16GB RAM — узкое место, нет апгрейда.", tag: "НЕ РЕКОМЕНДУЕТСЯ" }
+        ];
+
+        let weights = { power: 10, battery: 7, screen: 5, mobility: 3 };
+        const FIXED_WEIGHTS = { price: 4, reviews: 3 };
+        function updateSliderTrack(s) { s.style.setProperty('--value', `${((s.value-s.min)/(s.max-s.min))*100}%`); }
+        function recalculate() {
+            let data = laptops.map(l => ({...l, rawScore: (l.attrs.power*weights.power)+(l.attrs.stability*weights.power)+(l.attrs.battery*weights.battery)+(l.attrs.screen*weights.screen)+(l.attrs.mobility*weights.mobility)+(l.attrs.price*FIXED_WEIGHTS.price)+(l.attrs.reviews*FIXED_WEIGHTS.reviews)})).sort((a,b)=>b.rawScore-a.rawScore);
+            document.getElementById('winner-name').textContent = data[0].name;
+            const container = document.getElementById("plot-container");
+            container.innerHTML = "";
+            container.appendChild(Plot.plot({
+                style: { background: "transparent", color: "#9ca3af", fontFamily: "'Inter'", fontSize: "13px" },
+                width: container.clientWidth, height: 400, marginLeft: 180, marginRight: 60,
+                x: { domain: [0, 450], grid: true, ticks: [0, 150, 300, 450] },
+                y: { domain: data.map(d => d.name), paddingInner: 0.4 },
+                marks: [
+                    Plot.barX(data, { x: "rawScore", y: "name", fill: d => d.color, rx: 6 }),
+                    Plot.text(data, { x: "rawScore", y: "name", text: d => d.rawScore, textAnchor: "start", dx: 12, fill: "#fff", fontWeight: "bold", fontFamily: "'JetBrains Mono'", fontSize: 14 })
+                ]
+            }));
+        }
+        ['power', 'battery', 'screen', 'mobility'].forEach(k => {
+            const s = document.getElementById(`w-${k}`);
+            updateSliderTrack(s);
+            s.addEventListener('input', e => { weights[k] = Number(e.target.value); document.getElementById(`val-${k}`).textContent = e.target.value; updateSliderTrack(e.target); recalculate(); });
+        });
+        laptops.forEach(l => {
+            const tr = document.createElement('tr');
+            tr.className = 'laptop-row cursor-pointer';
+            tr.innerHTML = `<th class="px-6 py-5 text-white">${l.name}</th><td class="px-6 py-5">${l.cpu}</td><td class="px-6 py-5 font-mono text-xs">${l.ram}</td><td class="px-6 py-5 font-mono text-xs text-gray-400">${l.gpu}</td><td class="px-6 py-5 font-mono">${l.price} ₽</td>`;
+            tr.onclick = () => {
+                document.querySelectorAll('.laptop-row').forEach(r => r.classList.remove('selected'));
+                tr.classList.add('selected');
+                document.getElementById('details-view').classList.remove('hidden');
+                document.getElementById('detail-title').textContent = l.name;
+                document.getElementById('detail-tag').textContent = l.tag;
+                document.getElementById('detail-verdict').textContent = l.verdict;
+                document.getElementById('detail-pros').innerHTML = l.pros.map(p => `<li>— ${p}</li>`).join('');
+                document.getElementById('detail-cons').innerHTML = l.cons.map(c => `<li>— ${c}</li>`).join('');
+                const links = document.getElementById('links-container');
+                links.innerHTML = '';
+                l.links.forEach(ln => {
+                    const a = document.createElement('a');
+                    a.href = ln.url; a.target = "_blank"; a.className = `px-4 py-2 rounded-lg text-xs font-bold ${ln.style}`; a.textContent = ln.name;
+                    links.appendChild(a);
+                });
+            };
+            document.getElementById('table-body').appendChild(tr);
+        });
+        recalculate();
+    </script>
+</body>
+</html>
